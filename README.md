@@ -28,3 +28,12 @@ The server will handle authentication and user management. It will store user re
 ## Client
 
 The client will manage user secrets and perform authentication. It will generate secret scalar x during registration, compute public key, store the secret and load it on client startup, generate a new keypair during registration, send registration request with username and public key, handle registration response, derive shared session key via DH, generate TOTP, compute Schnorr proof, sned auth messages, prompt for username, display authentication results.
+
+
+## Registration
+
+During registration, the client generates a long-term secret scalar x and computes the corresponding public key Y = g^x over the Ristretto group. The public key is transmitted to the server and stored under the associated username. The client retains x locally, and the server stores only the public key, ensuring that no password or secret material is ever transmitted or persisted server-side.
+
+## Login
+
+During login, the client initiates an ephemeral Diffie–Hellman key exchange with the server to derive a fresh session key K. Using this key, the client generates a time-based one-time password (TOTP) and produces a Schnorr zero-knowledge proof of knowledge of its long-term secret. The proof is bound to the session identifier, server nonce, and OTP via transcript hashing, ensuring replay resistance and time-bound authentication. The server verifies both the TOTP and the Schnorr proof before granting access.
