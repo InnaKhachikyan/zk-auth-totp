@@ -1,7 +1,9 @@
 mod crypto;
+mod auth;
 
 use shared::crypto::schnorr::keypair_gen;
 use crypto::salt_gen;
+use auth::read_user_password;
 
 fn main() {
     let (x, y) = keypair_gen();
@@ -12,4 +14,7 @@ fn main() {
     let salt = salt_gen();
 
     println!("Salt is: {:?}", salt);
+    
+    let password = read_user_password();
+    println!("Password stored: {:?} ", password);
 }
