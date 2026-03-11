@@ -38,6 +38,5 @@ pub fn register_user() {
     let (ciphertext, nonce) = encrypt_secret_x(&key, &x);
     let record = LocalUserRecord {username, salt, nonce, enc_x: ciphertext};
     store_local_user(&record);
-    //store username : salt : enc_x on disk
     //send to server username : pub_key
 }
