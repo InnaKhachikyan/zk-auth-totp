@@ -1,4 +1,5 @@
 mod auth;
+mod storage;
 
 use auth::register_user;
 

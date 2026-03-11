@@ -3,6 +3,7 @@ use std::io::{self,Write};
 use shared::crypto::schnorr::keypair_gen;
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::encrypt_secret_x;
+use crate::storage::{LocalUserRecord, store_local_user};
 
 pub fn read_username() -> String {
     let mut username = String::new();
@@ -35,6 +36,8 @@ pub fn register_user() {
     let key = derive_key_from_password(&password, &salt).expect("Failed to derive the key");
 
     let (ciphertext, nonce) = encrypt_secret_x(&key, &x);
+    let record = LocalUserRecord {username, salt, nonce, enc_x: ciphertext};
+    store_local_user(&record);
     //store username : salt : enc_x on disk
     //send to server username : pub_key
 }
