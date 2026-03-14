@@ -16,7 +16,7 @@ pub fn store_user_record(record: &UserRecord) {
     let dir = "server/data";
     let path = format!("{}/{}.json", dir, record.username);
     fs::create_dir_all(dir).expect("failed to create the data directory");
-    if user_exists(&record.username) {
+    if user_exists(&path) {
         panic!("Username already exists");
     }
     let json = serde_json::to_string_pretty(record).expect("Failed to serialize the record");

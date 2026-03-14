@@ -27,10 +27,6 @@ fn handle_client(stream: TcpStream) {
 
 fn handle_register(request: RegisterRequest) {
     println!("Received register request");
-    let path = format!("server/data/{}.json", request.username);
-    if std::path::Path::new(&path).exists() {
-        panic!("Username already exists");
-    }
     let record = UserRecord {username: request.username, pub_key: request.y};
     store_user_record(&record);
 }
