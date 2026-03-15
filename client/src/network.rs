@@ -10,3 +10,11 @@ pub fn send_register_request(username: String, y: [u8; 32]) {
     stream.write_all(b"\n").expect("Failed to send the newline");
     println!("Registration request sent");
 }
+
+pub fn send_login_request(username: String, A: [u8; 32]) {
+    let request = ClientMessage::LoginStart(LoginStartRequest {username, A,});
+    let json = serde_json::to_string(&request).expect("Failed to serialize the LoginStartRequest");
+    stream.write_all(json.as_bytes()).expect("failed to send the request");
+    stream.write_all(b"\n").expect("Failed to send the newline");
+    println!("Login request sent");
+}

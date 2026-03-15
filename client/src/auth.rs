@@ -4,9 +4,9 @@ use shared::crypto::schnorr::keypair_gen;
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::encrypt_secret_x;
 use crate::storage::{LocalUserRecord, store_local_user};
-use crate::network::{send_register_request};
+use crate::network::{send_register_request, send_login_request};
 
-pub fn read_username() -> String {
+fn read_username() -> String {
     let mut username = String::new();
     print!("Enter Username: ");
     io::stdout().flush().expect("Failed to flush stdout");
@@ -16,7 +16,7 @@ pub fn read_username() -> String {
     username
 }
 
-pub fn read_user_password() -> String {
+fn read_user_password() -> String {
     print!("Enter Password: ");
     io::stdout().flush().unwrap();
 
@@ -25,7 +25,7 @@ pub fn read_user_password() -> String {
     password
 }
 
-pub fn register_user() {
+pub fn register() {
 
     let username = read_username();
     let password = read_user_password();
@@ -42,3 +42,21 @@ pub fn register_user() {
     let y_bytes: [u8; 32] = y.compress().to_bytes();
     send_register_request(username, y_bytes);
 }
+
+pub fn login() {
+    let username = read_username();
+    //generate DH a
+    //send DH A and username
+    //receive server_nonce and DH B
+    //derive DH key
+    let password = read_user_password();
+    //find the user's file
+    //extract salt and derive the key with kdf
+    //decrypt x from enc_x with the key
+    //derive DH key, prepare TOTP
+    //prepare schnorr proof
+    //send the proof to the server
+    //receive response from the server
+    //give access or reject
+}
+
