@@ -93,6 +93,7 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
  "rand_core",
  "rpassword",
  "serde",
@@ -370,6 +371,7 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "rand_core",
  "serde",
  "serde_json",
  "shared",

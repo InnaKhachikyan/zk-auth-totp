@@ -1,7 +1,8 @@
 use std::io::{BufRead, BufReader};
+use std::thread;
 use std::net::{TcpListener, TcpStream};
-use shared::messages::{RegisterRequest, LoginStartRequest, ClientMessage};
-use crate::storage::{UserRecord, store_user_record};
+use shared::messages::{ClientMessage, ServerMessage};
+use crate::auth::{handle_register, handle_login_start, handle_login_proof};
 
 pub fn run_server() {
     let listener = TcpListener::bind("127.0.0.1:7878").expect("Failed to bind server");
@@ -9,32 +10,62 @@ pub fn run_server() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle_client(stream),Err(e) => eprintln!("Connection failed: {}", e),
+            Ok(stream) => {
+                println!("Client connected");
+                thread::spawn(move || {
+                    handle_client(stream);
+                });
+            }
+            Err(e) => eprintln!("Connection failed: {}", e),
         }
     }
 }
 
-fn handle_client(stream: TcpStream) {
-    let mut reader = BufReader::new(stream);
-    let mut message = String::new();
-    reader.read_line(&mut message).expect("Failed to read from client");
-    let request: ClientMessage = serde_json::from_str(&message).expect("Failed to deserialize client message");
-    match request {
-        ClientMessage::Register(request) => handle_register(request),
-        ClientMessage::LoginStart(request) => handle_login_start(request),
+fn handle_client(mut stream: TcpStream) {
+    let reader_stream = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to clone stream: {}", e);
+            return;
+        }
+    };
+
+    let mut reader = BufReader::new(reader_stream);
+    loop {
+        let mut message = String::new();
+
+        match reader.read_line(&mut message) {
+            Ok(0) => {
+                println!("Clinet disconnected");
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Failed to read from client: {}", e);
+                break;
+            }
+        }
+        let request: ClientMessage = match serde_json::from_str(&message) {
+            Ok(req) => req,
+            Err(e) => {
+                eprintln!("Failed to deserialize client message: {}", e);
+                continue;
+            }
+        };
+        let response = match request {
+            ClientMessage::Register(request) => handle_register(request),
+            ClientMessage::LoginStart(request) => handle_login_start(request),
+            ClientMessage::LoginProof(request) => handle_login_proof(request),
+        };
+        if let Err(e) = send_response(&mut stream, &response) {
+            eprintln!("Failed to send response {}", e);
+            break;
+        }
     }
 }
 
-fn handle_register(request: RegisterRequest) {
-    println!("Received register request");
-    let record = UserRecord {username: request.username, pub_key: request.y};
-    store_user_record(&record);
+fn send_response(stream: &mut TcpStream, response: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {
+    return Ok(())
 }
 
-fn handle_login_start(request: LoginStartRequest) {
-    println!("Received login request");
-    let path = format!("server/data/{}.json", request.username);
-    if !std::path::Path::new(&path).exists() {
-        panic!("User does not exist");
-    }
-}
+

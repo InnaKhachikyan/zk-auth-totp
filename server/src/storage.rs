@@ -8,7 +8,7 @@ pub struct UserRecord {
     pub pub_key: [u8; 32],
 }
 
-fn user_exists(path: &str) -> bool {
+pub fn user_exists(path: &str) -> bool {
     Path::new(&path).exists()
 }
 

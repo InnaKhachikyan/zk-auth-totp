@@ -1,10 +1,13 @@
 use rpassword::read_password;
+use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use std::io::{self,Write};
 use shared::crypto::schnorr::keypair_gen;
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::encrypt_secret_x;
+use shared::crypto::dh::{dh_gen, derive_dh_key};
 use crate::storage::{LocalUserRecord, store_local_user};
-use crate::network::{send_register_request, send_login_request};
+use crate::network::{start_connection, send_register_request, send_login_request, read_login_start_response};
+use shared::messages::LoginStartResponse;
 
 fn read_username() -> String {
     let mut username = String::new();
@@ -40,15 +43,26 @@ pub fn register() {
     let record = LocalUserRecord {username: username.clone(), salt, nonce, enc_x: ciphertext};
     store_local_user(&record);
     let y_bytes: [u8; 32] = y.compress().to_bytes();
-    send_register_request(username, y_bytes);
+    let mut stream = start_connection();
+    send_register_request(username, y_bytes, &mut stream);
 }
 
 pub fn login() {
     let username = read_username();
-    //generate DH a
-    //send DH A and username
-    //receive server_nonce and DH B
-    //derive DH key
+    let (secret_local, pub_local) = dh_gen();
+    let pub_local_bytes: [u8; 32] = pub_local.compress().to_bytes();
+
+    let mut stream = start_connection();
+    send_login_request(username, pub_local_bytes, &mut stream); 
+    let server_response = read_login_start_response(&mut stream);
+    let (server_nonc, server_dh_compressed) = match server_response {
+        LoginStartResponse::Success {nonce, pub_dh} => (nonce, pub_dh),
+        LoginStartResponse::Failure { message } => panic!("Login failed: {}", message),
+    };
+    let compressed = CompressedRistretto(server_dh_compressed);
+    let server_dh: RistrettoPoint = compressed.decompress().expect("Invalid Ristretto point");
+    let dh_key: RistrettoPoint = derive_dh_key(secret_local, server_dh);
+
     let password = read_user_password();
     //find the user's file
     //extract salt and derive the key with kdf
