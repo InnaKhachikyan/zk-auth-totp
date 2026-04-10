@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 shared = { path = "../shared" }
-# add tokio later if/when you use it
-# tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
