@@ -6,8 +6,8 @@ use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::encrypt_secret_x;
 use shared::crypto::dh::{dh_gen, derive_dh_key};
 use crate::storage::{LocalUserRecord, store_local_user};
-use crate::network::{start_connection, send_register_request, send_login_request, read_login_start_response};
-use shared::messages::LoginStartResponse;
+use crate::network::{start_connection, send_register_request, send_login_request, read_register_response, read_login_start_response};
+use shared::messages::{ClientMessage, RegisterRequest, LoginStartRequest, LoginProofRequest, ServerMessage, RegisterResponse, LoginStartResponse, LoginResult};
 
 fn read_username() -> String {
     let mut username = String::new();
@@ -41,10 +41,20 @@ pub fn register() {
 
     let (ciphertext, nonce) = encrypt_secret_x(&key, &x);
     let record = LocalUserRecord {username: username.clone(), salt, nonce, enc_x: ciphertext};
-    store_local_user(&record);
     let y_bytes: [u8; 32] = y.compress().to_bytes();
-    let mut stream = start_connection();
-    send_register_request(username, y_bytes, &mut stream);
+    let mut c_con = start_connection();
+    send_register_request(&mut c_con, username.clone(), y_bytes);
+    let response = read_register_response(&mut c_con);
+
+    match response {
+        RegisterResponse::Success => { 
+            store_local_user(&record);
+            println!("User '{}' successfully reigstered", username);
+        }
+        RegisterResponse::Failure {message: _ } => {
+            println!("Registration failed");
+        }
+    }
 }
 
 pub fn login() {
@@ -52,9 +62,9 @@ pub fn login() {
     let (secret_local, pub_local) = dh_gen();
     let pub_local_bytes: [u8; 32] = pub_local.compress().to_bytes();
 
-    let mut stream = start_connection();
-    send_login_request(username, pub_local_bytes, &mut stream); 
-    let server_response = read_login_start_response(&mut stream);
+    let mut c_con = start_connection();
+    send_login_request(&mut c_con, username, pub_local_bytes); 
+    let server_response = read_login_start_response(&mut c_con);
     let (server_nonc, server_dh_compressed) = match server_response {
         LoginStartResponse::Success {nonce, pub_dh} => (nonce, pub_dh),
         LoginStartResponse::Failure { message } => panic!("Login failed: {}", message),
