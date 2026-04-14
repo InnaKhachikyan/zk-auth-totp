@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::thread;
 use std::net::{TcpListener, TcpStream};
 use shared::messages::{ClientMessage, ServerMessage};
@@ -6,7 +6,7 @@ use crate::auth::{handle_register, handle_login_start, handle_login_proof};
 
 pub fn run_server() {
     let listener = TcpListener::bind("127.0.0.1:7878").expect("Failed to bind server");
-    println!("Server listening on localhost");
+    println!("Server listening on 127.0.0.1:7878");
 
     for stream in listener.incoming() {
         match stream {
@@ -36,7 +36,7 @@ fn handle_client(mut stream: TcpStream) {
 
         match reader.read_line(&mut message) {
             Ok(0) => {
-                println!("Clinet disconnected");
+                println!("Client disconnected");
                 break;
             }
             Ok(_) => {}
@@ -65,7 +65,10 @@ fn handle_client(mut stream: TcpStream) {
 }
 
 fn send_response(stream: &mut TcpStream, response: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {
-    return Ok(())
+    let json = serde_json::to_string(response)?;
+    stream.write_all(json.as_bytes())?;
+    stream.write_all(b"\n")?;
+    Ok(())
 }
 
 
