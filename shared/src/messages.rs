@@ -9,7 +9,7 @@ pub struct RegisterRequest {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LoginStartRequest {
     pub username: String,
-    pub A: [u8; 32],
+    pub client_pub_dh: [u8; 32],
 }
 
 #[derive(Serialize, Deserialize, Debug)]

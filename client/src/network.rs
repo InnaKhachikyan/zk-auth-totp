@@ -24,8 +24,8 @@ pub fn send_register_request(c_con: &mut ClientConnection, username: String, y: 
     println!("Registration request sent");
 }
 
-pub fn send_login_request(c_con: &mut ClientConnection, username: String, A: [u8; 32]) {
-    let request = ClientMessage::LoginStart(LoginStartRequest {username, A,});
+pub fn send_login_request(c_con: &mut ClientConnection, username: String, client_pub_dh: [u8; 32]) {
+    let request = ClientMessage::LoginStart(LoginStartRequest {username, client_pub_dh,});
     let json = serde_json::to_string(&request).expect("Failed to serialize the LoginStartRequest");
     c_con.writer.write_all(json.as_bytes()).expect("failed to send the request");
     c_con.writer.write_all(b"\n").expect("Failed to send the newline");
