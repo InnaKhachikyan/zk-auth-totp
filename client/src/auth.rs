@@ -5,10 +5,12 @@ use shared::crypto::schnorr::keypair_gen;
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::{encrypt_secret_x, decrypt_secret_x};
 use shared::crypto::dh::{dh_gen, derive_dh_key};
+use shared::crypto::totp::{generate_totp};
 use crate::storage::{LocalUserRecord, store_local_user};
 use crate::network::{start_connection, send_register_request, send_login_request, read_register_response, read_login_start_response};
 use shared::messages::{ClientMessage, RegisterRequest, LoginStartRequest, LoginProofRequest, ServerMessage, RegisterResponse, LoginStartResponse, LoginResult};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserData {
@@ -101,7 +103,10 @@ pub fn login() {
     let server_dh: RistrettoPoint = compressed.decompress().expect("Invalid Ristretto point");
     let dh_key: RistrettoPoint = derive_dh_key(secret_local, server_dh);
 
-    //prepare TOTP
+    let current_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time extraction failed").as_secs();
+
+    let key_bytes: [u8; 32] = dh_key.compress().to_bytes();
+    let totp = generate_totp(&key_bytes, current_time, 60, 6); 
     //prepare schnorr proof
     //send the proof to the server
     //receive response from the server
