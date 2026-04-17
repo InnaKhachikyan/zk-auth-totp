@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use crate::crypto::schnorr::{SchnorrProof};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegisterRequest {
@@ -14,7 +15,7 @@ pub struct LoginStartRequest {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LoginProofRequest {
-    //placeholder for schnorr proof of knowledge of secret x
+    pub proof: SchnorrProof, 
 }
 
 #[derive(Serialize, Deserialize, Debug)]

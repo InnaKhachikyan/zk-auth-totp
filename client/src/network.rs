@@ -1,7 +1,8 @@
 use std::io::Write;
 use std::net::TcpStream;
 use std::io::{BufRead, BufReader};
-use shared::messages::{RegisterRequest, LoginStartRequest, ClientMessage, LoginStartResponse, RegisterResponse, LoginResult, ServerMessage};
+use shared::crypto::schnorr::{SchnorrProof};
+use shared::messages::{RegisterRequest, LoginStartRequest, LoginProofRequest, ClientMessage, LoginStartResponse, RegisterResponse, LoginResult, ServerMessage};
 
 pub struct ClientConnection {
     writer: TcpStream,
@@ -30,6 +31,14 @@ pub fn send_login_request(c_con: &mut ClientConnection, username: String, client
     c_con.writer.write_all(json.as_bytes()).expect("failed to send the request");
     c_con.writer.write_all(b"\n").expect("Failed to send the newline");
     println!("Login request sent");
+}
+
+pub fn send_login_proof(c_con: &mut ClientConnection, proof: SchnorrProof) {
+    let request = ClientMessage::LoginProof(LoginProofRequest {proof});
+    let json = serde_json::to_string(&request).expect("Failed to serialize the LoginProofRequest");
+    c_con.writer.write_all(json.as_bytes()).expect("Failed to send the request");
+    c_con.writer.write_all(b"\n").expect("Failed to send the newline");
+    println!("Login proof sent");
 }
 
 pub fn read_register_response(c_con: &mut ClientConnection) -> RegisterResponse {

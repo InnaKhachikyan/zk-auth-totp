@@ -3,8 +3,9 @@ use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use rand_core::OsRng;
 use sha2::{Digest, Sha512};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchnorrProof {
     pub t: [u8;32],
     pub s: [u8;32],

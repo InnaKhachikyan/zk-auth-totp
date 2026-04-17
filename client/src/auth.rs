@@ -3,14 +3,14 @@ use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use std::io::{self,Write};
-use shared::crypto::schnorr::{SchnorrProof, generate_proof, keypair_gen};
+use shared::crypto::schnorr::{generate_proof, keypair_gen};
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::{encrypt_secret_x, decrypt_secret_x};
 use shared::crypto::dh::{dh_gen, derive_dh_key};
 use shared::crypto::totp::{generate_totp};
 use crate::storage::{LocalUserRecord, store_local_user};
-use crate::network::{start_connection, send_register_request, send_login_request, read_register_response, read_login_start_response};
-use shared::messages::{ClientMessage, RegisterRequest, LoginStartRequest, LoginProofRequest, ServerMessage, RegisterResponse, LoginStartResponse, LoginResult};
+use crate::network::{start_connection, send_register_request, send_login_request, send_login_proof, read_register_response, read_login_start_response, read_login_result_response};
+use shared::messages::{RegisterResponse, LoginStartResponse, LoginResult};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -112,8 +112,15 @@ pub fn login() {
     let totp = generate_totp(&key_bytes, current_time, 60, 6);
     let y = RISTRETTO_BASEPOINT_POINT * x;
     let schnorr = generate_proof(&x, &y, &pub_local_bytes, &server_dh_compressed, totp, &server_nonce); 
-    //send the proof to the server
-    //receive response from the server
-    //give access or reject
+    send_login_proof(&mut client_connection, schnorr);
+    let auth_response = read_login_result_response(&mut client_connection);
+    match auth_response {
+        LoginResult::Success => {
+            println!("Authentication successful");
+        }
+        LoginResult::Failure { message } => {
+            println!("Authentication failed: {}", message);
+        }
+    }
 }
 
