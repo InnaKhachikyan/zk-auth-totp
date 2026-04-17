@@ -1,7 +1,9 @@
 use rpassword::read_password;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
+use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use std::io::{self,Write};
-use shared::crypto::schnorr::keypair_gen;
+use shared::crypto::schnorr::{SchnorrProof, generate_proof, keypair_gen};
 use shared::crypto::kdf::{salt_gen, derive_key_from_password};
 use shared::crypto::aes::{encrypt_secret_x, decrypt_secret_x};
 use shared::crypto::dh::{dh_gen, derive_dh_key};
@@ -88,6 +90,7 @@ pub fn login() {
 
     let key = derive_key_from_password(&password, &user.salt).expect("Failed to derive the key");
     let secret_x = decrypt_secret_x(&key, &user.nonce, user.enc_x);
+    let x = Scalar::from_bytes_mod_order(secret_x);
 
     let (secret_local, pub_local) = dh_gen();
     let pub_local_bytes: [u8; 32] = pub_local.compress().to_bytes();
@@ -106,8 +109,9 @@ pub fn login() {
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time extraction failed").as_secs();
 
     let key_bytes: [u8; 32] = dh_key.compress().to_bytes();
-    let totp = generate_totp(&key_bytes, current_time, 60, 6); 
-    //prepare schnorr proof
+    let totp = generate_totp(&key_bytes, current_time, 60, 6);
+    let y = RISTRETTO_BASEPOINT_POINT * x;
+    let schnorr = generate_proof(&x, &y, &pub_local_bytes, &server_dh_compressed, totp, &server_nonce); 
     //send the proof to the server
     //receive response from the server
     //give access or reject
