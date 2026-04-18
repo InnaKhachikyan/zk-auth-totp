@@ -121,7 +121,6 @@ pub fn login() {
             return;
         }
     };
-    let server_dh: RistrettoPoint = compressed.decompress().expect("Invalid Ristretto point");
     let dh_key: RistrettoPoint = derive_dh_key(secret_local, server_dh);
 
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time extraction failed").as_secs();
