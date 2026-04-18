@@ -1,40 +1,87 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
+use std::thread;
 use std::net::{TcpListener, TcpStream};
-use shared::messages::{RegisterRequest, LoginStartRequest, ClientMessage};
-use crate::storage::{UserRecord, store_user_record};
+use shared::messages::{ClientMessage, ServerMessage, LoginResult};
+use crate::auth::{handle_register, handle_login_start, handle_login_proof, LoginSession};
 
 pub fn run_server() {
     let listener = TcpListener::bind("127.0.0.1:7878").expect("Failed to bind server");
-    println!("Server listening on localhost");
+    println!("Server listening on 127.0.0.1:7878");
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => handle_client(stream),Err(e) => eprintln!("Connection failed: {}", e),
+            Ok(stream) => {
+                println!("Client connected");
+                thread::spawn(move || {
+                    handle_client(stream);
+                });
+            }
+            Err(e) => eprintln!("Connection failed: {}", e),
         }
     }
 }
 
-fn handle_client(stream: TcpStream) {
-    let mut reader = BufReader::new(stream);
-    let mut message = String::new();
-    reader.read_line(&mut message).expect("Failed to read from client");
-    let request: ClientMessage = serde_json::from_str(&message).expect("Failed to deserialize client message");
-    match request {
-        ClientMessage::Register(request) => handle_register(request),
-        ClientMessage::LoginStart(request) => handle_login_start(request),
+fn handle_client(mut stream: TcpStream) {
+    let reader_stream = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to clone stream: {}", e);
+            return;
+        }
+    };
+
+    let mut reader = BufReader::new(reader_stream);
+
+    let mut login_session: Option<LoginSession> = None;
+    loop {
+        let mut message = String::new();
+
+        match reader.read_line(&mut message) {
+            Ok(0) => {
+                println!("Client disconnected");
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Failed to read from client: {}", e);
+                break;
+            }
+        }
+        let request: ClientMessage = match serde_json::from_str(&message) {
+            Ok(req) => req,
+            Err(e) => {
+                eprintln!("Failed to deserialize client message: {}", e);
+                continue;
+            }
+        };
+        let response = match request {
+            ClientMessage::Register(request) => handle_register(request),
+            ClientMessage::LoginStart(request) => {
+                let (response, session) = handle_login_start(request);
+                login_session = session;
+                response
+            }
+            ClientMessage::LoginProof(request) => {
+                match &login_session {
+                    Some(session) => handle_login_proof(request, &session.y, &session.a_bytes, &session.b_secret, &session.b_bytes, &session.nonce),
+                    None => {
+                        ServerMessage::LoginResult(LoginResult::Failure { message: "No active session".to_string(),})
+                    }
+                }
+            }
+        };
+        if let Err(e) = send_response(&mut stream, &response) {
+            eprintln!("Failed to send response {}", e);
+            break;
+        }
     }
 }
 
-fn handle_register(request: RegisterRequest) {
-    println!("Received register request");
-    let record = UserRecord {username: request.username, pub_key: request.y};
-    store_user_record(&record);
+fn send_response(stream: &mut TcpStream, response: &ServerMessage) -> Result<(), Box<dyn std::error::Error>> {
+    let json = serde_json::to_string(response)?;
+    stream.write_all(json.as_bytes())?;
+    stream.write_all(b"\n")?;
+    Ok(())
 }
 
-fn handle_login_start(request: LoginStartRequest) {
-    println!("Received login request");
-    let path = format!("server/data/{}.json", request.username);
-    if !std::path::Path::new(&path).exists() {
-        panic!("User does not exist");
-    }
-}
+

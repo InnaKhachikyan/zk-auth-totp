@@ -7,3 +7,5 @@ edition = "2021"
 shared = { path = "../shared" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rand_core = { version = "0.6" }
+curve25519-dalek = "4"

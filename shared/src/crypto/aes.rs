@@ -1,4 +1,4 @@
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce,};
+use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
 use rand_core::{RngCore, OsRng};
 
 pub fn encrypt_secret_x(key: &[u8; 32], x: &[u8; 32]) -> (Vec<u8>, [u8; 12]) {
@@ -13,15 +13,15 @@ pub fn encrypt_secret_x(key: &[u8; 32], x: &[u8; 32]) -> (Vec<u8>, [u8; 12]) {
     (ciphertext, nonce_bytes)
 }        
 
-pub fn decrypt_secret_x(key: &[u8; 32], nonce: &[u8; 12], ciphertext: Vec<u8>) -> [u8; 32] {
+pub fn decrypt_secret_x(key: &[u8; 32], nonce: &[u8; 12], ciphertext: Vec<u8>) -> Result<[u8; 32], Box<dyn std::error::Error>> {
     let cipher = Aes256Gcm::new_from_slice(key).expect("Failed to initialize AES-256-GCM cipher");
     let nonce = Nonce::from_slice(nonce);
-    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).expect("Failed to decrypt secret x");
+    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| "Failed to decrypt secret x")?;
     if plaintext.len() != 32 {
-        panic!("The decrypted x has an invalid length");
+        return Err("Decrypted x has invalid length".into());
     }
     let mut x = [0u8; 32];
     x.copy_from_slice(&plaintext);
-    x
+    Ok(x)
 }
 

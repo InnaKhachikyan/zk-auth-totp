@@ -93,6 +93,7 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
  "rand_core",
  "rpassword",
  "serde",
@@ -202,6 +203,15 @@ checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
 dependencies = [
  "opaque-debug",
  "polyval",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -370,6 +380,8 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
+ "rand_core",
  "serde",
  "serde_json",
  "shared",
@@ -393,6 +405,7 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "curve25519-dalek",
+ "hmac",
  "rand_core",
  "serde",
  "serde_json",

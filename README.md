@@ -1,184 +1,216 @@
-# ZK Authentication with TOTP
+# zk-auth-totp
 
-## Overview
-
-This project implements a zero-knowledge authentication protocol in Rust, replacing traditional
-password-hash verification with a Schnorr proof-of-knowledge construction. The client proves
-knowledge of a long-term secret scalar `x` without revealing it, using a Fiat–Shamir challenge
-bound to an ephemeral session context.
-
-Session context is established via an ephemeral Diffie–Hellman exchange. From this a shared key
-`K` is derived. `K` is used to seed a time-based one-time password (TOTP), adding a second
-authentication factor and providing replay resistance. The system runs as a Rust client–server pair
-communicating over a TCP connection.
+A password-authenticated, zero-knowledge login system implemented in Rust. The client proves knowledge of its long-term secret key using a Schnorr proof (via Fiat-Shamir transform) without transmitting the password or the key itself. Session freshness is enforced by binding each proof to an ephemeral Diffie-Hellman exchange and a TOTP derived from the resulting shared secret. The server stores only the user's public key; it holds no password hash and no secret material.
 
 ---
 
-## Design Goals
+## Architecture
 
-- The server never receives or stores the user's password
-- The server never learns the user's private key `x`
-- Replay attacks are prevented via a per-session server nonce and time-bound TOTP
-- Authentication requires both a long-term secret (ZK proof) and a time-based factor (TOTP)
-- Private key `x` is stored locally under AES-256-GCM encryption, keyed by a password-derived key
+The project is a Cargo workspace with three crates:
 
----
+| Crate | Role |
+|-------|------|
+| `shared` | Cryptographic primitives and message types used by both client and server |
+| `client` | CLI application: handles registration, key storage, and login proof generation |
+| `server` | TCP server: manages user records and verifies login proofs |
 
-## System Architecture
+**client** stores the user's secret key `x` encrypted under an Argon2-derived key. The plaintext of `x` never leaves the client.
 
-```
-zk-auth-totp/
-├── shared/     # Cryptographic primitives used by both client and server
-│               # (Schnorr keypair gen, DH, AES-256-GCM, Argon2id KDF)
-├── client/     # Registration, login initiation, local key storage
-└── server/     # TCP listener, request dispatch, user record storage
-```
-
-Messages are serialized with `serde_json` over newline-delimited TCP streams.
+**server** stores only the user's long-term public key `Y = g^x`. No password, no secret key.
 
 ---
 
-## Protocol Overview
+## Design Rationale
+
+- **Password never leaves the client.** It is used only to derive a local AES-256-GCM key for encrypting `x` at rest; it is never sent over the network.
+- **Server holds no secret.** Storing only `Y = g^x` means a full server compromise exposes no material that can directly authenticate as a user.
+- **Proof-based authentication.** Login is a zero-knowledge Schnorr proof of discrete log. The verifier learns nothing about `x` beyond that the prover holds it.
+- **Session-bound proof.** The Fiat-Shamir challenge binds the proof to the specific DH exchange (via `A`, `B`) and the current time window (via TOTP and server nonce), preventing replay across sessions.
+
+---
+
+## Protocol Flow
 
 ### Registration
 
-**Client:**
-
-1. Prompts for username and password
-2. Generates long-term keypair with CSPRNG:
-   ```
-   x ← Zq   (random scalar)
-   Y = g^x   (Ristretto basepoint)
-   ```
-3. Derives local encryption key:
-   ```
-   salt ← random 128-bit value
-   k = Argon2id(password, salt)
-   ```
-4. Encrypts and stores `x` locally:
-   ```
-   (enc_x, nonce) = AES-256-GCM(k, x)
-   stored: { username, salt, nonce, enc_x }
-   ```
-5. Sends `(username, Y)` to server
-
-**Server:**
-
-1. Receives `(username, Y)`
-2. Stores `{ username, Y }` to disk (JSON)
-
----
+1. Client generates a long-term keypair: `x` (scalar), `Y = g^x` (Ristretto point).
+2. Client derives an encryption key from the user's password via Argon2id.
+3. Client encrypts `x` with AES-256-GCM and stores the ciphertext locally.
+4. Client sends `(username, Y)` to the server.
+5. Server stores `(username, Y)`.
 
 ### Login
 
-Each login attempt uses fresh DH ephemeral keys, a fresh server nonce, fresh Schnorr randomness,
-and a time-bound TOTP.
-
-**Step 1 — Client → Server**
-
-Client generates ephemeral DH key and sends:
 ```
-a ← Zq   (fresh random scalar)
-A = g^a
-send: (username, A)
-```
-
-**Step 2 — Server → Client**
-
-Server verifies the username exists, generates its own DH key and nonce, and sends:
-```
-b ← Zq   (fresh random scalar)
-B = g^b
-nonce ← random 128-bit value
-send: (nonce, B)
+Client                                          Server
+  |                                               |
+  |-- LoginStartRequest: (username, A=g^a) -----> |
+  |                                               |  generate b, B=g^b, nonce
+  |<-- LoginStartResponse: (B, nonce) ----------- |
+  |                                               |
+  |  K = a·B = g^(ab)                             |  K = b·A = g^(ab)
+  |  TOTP = HMAC-SHA256(K, floor(t/60))           |  TOTP = HMAC-SHA256(K, floor(t/60))
+  |                                               |
+  |  e = SHA-512("ZK_AUTH_TOTP"||t||Y||A||B||TOTP||nonce) |
+  |  s = r + e·x                                  |
+  |                                               |
+  |-- LoginProofRequest: SchnorrProof(t, s) -----> |
+  |                                               |  verify: g^s == t · Y^e
+  |<-- LoginResult: Success / Failure ------------ |
 ```
 
-**Step 3 — Shared Secret Derivation**
-
-Both parties independently compute:
-```
-K = g^(ab)   (ephemeral DH shared secret)
-```
-
-**Step 4 — TOTP Derivation**
-
-Using key material from `K`:
-```
-TOTP = TOTP(K, current_time_window)
-```
-The TOTP is a 6-digit value with a fixed time window (e.g. 60 seconds).
-
-**Step 5 — Schnorr Proof Construction (Client)**
-
-Client decrypts `x`, generates fresh Schnorr randomness, and constructs a proof:
-```
-k = Argon2id(password, salt)
-x = AES-256-GCM-Decrypt(k, enc_x)
-
-r ← Zq   (fresh, never reused)
-t = g^r   (commitment)
-
-e = SHA-256("ZK_TOTP_AUTH" || t || Y || A || B || TOTP || nonce)   (Fiat–Shamir challenge)
-
-s = r + e·x  (mod q)   (response)
-```
-
-Client sends: `(t, s)`
-
-**Step 6 — Verification (Server)**
-
-Server recomputes `K`, derives the expected TOTP, recomputes the challenge, and verifies:
-```
-K = g^(ab)
-TOTP = TOTP(K, current_time_window)
-
-e = SHA-256("ZK_TOTP_AUTH" || t || Y || A || B || TOTP || nonce)
-
-verify: g^s == t · Y^e
-```
-
-If both the TOTP and the Schnorr equation hold, authentication succeeds.
+1. Client sends its ephemeral DH public key `A = g^a` alongside the username.
+2. Server generates its own ephemeral keypair `(b, B)` and a random 16-byte nonce, then replies with `(B, nonce)`.
+3. Both sides independently derive the shared key `K = g^(ab)`.
+4. Both sides derive a session TOTP from `K` using HMAC-SHA256 over the current 60-second time window.
+5. Client decrypts its stored `x` using the password-derived key, then generates a Schnorr proof:
+   - Pick random `r`; compute commitment `t = g^r`
+   - Compute Fiat-Shamir challenge: `e = SHA-512("ZK_AUTH_TOTP" || t || Y || A || B || TOTP || nonce)`
+   - Compute response: `s = r + e·x`
+6. Server recomputes the same TOTP, reconstructs `e`, and verifies: `g^s == t · Y^e`.
 
 ---
 
 ## Cryptographic Components
 
-| Component | Role |
-|---|---|
-| Ristretto255 (`curve25519-dalek`) | Prime-order group for all scalar/point operations |
-| Schnorr + Fiat–Shamir | Non-interactive zero-knowledge proof of knowledge of `x` |
-| Ephemeral Diffie–Hellman | Per-session shared secret derivation |
-| TOTP | Time-bound second factor; replay resistance |
-| SHA-256 (`sha2`) | Fiat–Shamir transcript hash |
-| Argon2id (`argon2`) | Password-based key derivation for local encryption |
-| AES-256-GCM (`aes-gcm`) | Authenticated encryption of `x` at rest |
-| `OsRng` (CSPRNG) | All randomness: `x`, `r`, `a`, `b`, nonces, salts |
+| Component | Algorithm | Purpose |
+|-----------|-----------|---------|
+| Group | Ristretto255 (curve25519-dalek) | Prime-order group for all elliptic curve operations |
+| Key exchange | Ephemeral Diffie-Hellman | Establish per-session shared secret |
+| Session OTP | HMAC-SHA256 over DH shared key | Bind proof to the current session and time window |
+| ZK proof | Schnorr with Fiat-Shamir transform | Prove knowledge of `x` without revealing it; challenge hashed with domain separator `"ZK_AUTH_TOTP"` |
+| Hash | SHA-512 | Fiat-Shamir challenge: `e = SHA-512("ZK_AUTH_TOTP" \|\| t \|\| Y \|\| A \|\| B \|\| TOTP \|\| nonce)` |
+| Local encryption | AES-256-GCM | Protect secret key `x` at rest on the client |
+| Key derivation | Argon2id (19 MB, 2 iterations) | Derive AES key from user password |
 
 ---
 
-## Current Status
+## Build & Run
 
-| Component | Status |
-|---|---|
-| Registration (end-to-end) | Implemented |
-| Client DH key exchange | Implemented |
-| Server DH response | Implemented (Server-side session handling (state persistence across messages) — under development) |
-| AES-256-GCM local key storage | Implemented |
-| Argon2id KDF | Implemented |
-| TCP server with per-client threads | Implemented |
-| Message serialization (serde_json) | Implemented |
-| Schnorr proof construction — partially implemented (key generation complete, proof logic in progress) |
-| Schnorr verification (`verify`) | Under development — not yet implemented |
-| TOTP generation and verification | Under development — not yet implemented |
-| Full login flow (proof + verification) | Under development |
-| Server response sending | Stub — `send_response` not yet complete |
+**Prerequisites:** Rust toolchain (edition 2021), `cargo`.
+
+```bash
+# Build all crates
+cargo build --release
+
+# Run the server
+cargo run -p server --release
+
+# Run the client
+cargo run -p client --release -- register
+cargo run -p client --release -- login
+```
+
+The server listens on `127.0.0.1:7878`. Both binaries must be run from the workspace root so that the relative data paths (`server/data/`, `client/data/`) resolve correctly.
 
 ---
 
-## Notes
+## Example Usage
 
-- All randomness (`x`, `r`, `a`, `b`, nonces, salts) is generated via `OsRng`, the OS CSPRNG
-- `r` (Schnorr commitment scalar) must never be reused; each login generates a fresh value
-- The server nonce must be unique per login attempt to prevent replay
-- The Fiat–Shamir transcript binds the proof to the full session context: `t`, `Y`, `A`, `B`, TOTP, and nonce
-- This is a learning and experimentation project in applied cryptography — not intended for production use
+**Register a new user:**
+
+```
+$ cargo run -p client --release -- register
+Enter Username: alice
+Enter Password:
+User 'alice' successfully registered
+```
+
+**Login:**
+
+```
+$ cargo run -p client --release -- login
+Enter Username: alice
+Enter Password:
+Authentication successful
+```
+
+**Wrong password:**
+
+```
+$ cargo run -p client --release -- login
+Enter Username: alice
+Enter Password:
+Authentication failed
+```
+
+---
+
+## Project Structure
+
+```
+zk-auth-totp/
+├── Cargo.toml                  # Workspace definition
+├── shared/
+│   └── src/
+│       ├── lib.rs
+│       ├── messages.rs         # Client/server message types (serde)
+│       └── crypto/
+│           ├── mod.rs
+│           ├── schnorr.rs      # Proof generation and verification
+│           ├── dh.rs           # Ephemeral DH keypair and key derivation
+│           ├── totp.rs         # HMAC-SHA256 based TOTP
+│           ├── aes.rs          # AES-256-GCM encrypt/decrypt
+│           └── kdf.rs          # Argon2id password-to-key derivation
+├── server/
+│   └── src/
+│       ├── main.rs
+│       ├── network.rs          # TCP listener, per-connection session state
+│       ├── auth.rs             # handle_register, handle_login_start, handle_login_proof
+│       └── storage.rs          # UserRecord persistence (JSON files)
+└── client/
+    └── src/
+        ├── main.rs
+        ├── network.rs          # TCP client, message serialization
+        ├── auth.rs             # register(), login() flows
+        └── storage.rs          # LocalUserRecord persistence (JSON files)
+```
+
+---
+
+## Security Properties
+
+- **Password never transmitted.** The password is used only locally to derive the AES key that decrypts `x`.
+- **Server stores no secrets.** The server holds only the public key `Y = g^x` and cannot recover `x` or the password.
+- **Zero-knowledge proof.** The Schnorr proof reveals nothing about `x` beyond the fact that the prover knows it.
+- **Session binding.** The Fiat-Shamir challenge incorporates both DH public keys, the TOTP, and the server nonce, preventing replay and cross-session substitution attacks.
+- **Forward secrecy (per session).** Ephemeral DH keys are generated fresh for every login; compromise of long-term keys does not retroactively expose past sessions.
+- **TOTP freshness.** TOTP is derived from the ephemeral shared key and a 60-second time window, bounding proof validity to the current session window.
+- **Local key protection.** The secret key `x` is stored encrypted under AES-256-GCM. Decryption failure (wrong password or tampered ciphertext) surfaces as an authentication error, not a panic.
+
+---
+
+## Limitations
+
+- **No TLS.** The TCP connection is unauthenticated and unencrypted at the transport layer. The cryptographic proof prevents impersonation, but traffic is visible to a network observer.
+- **No replay protection beyond the session.** The nonce prevents replay within the same DH exchange; a separate nonce blacklist would be needed to prevent cross-session replay if the same ephemeral keys were reused (they are not, but this is not enforced by the protocol).
+- **Clock skew.** TOTP verification uses a single 60-second window with no tolerance for clock skew between client and server. A difference of even a few seconds straddling a window boundary will cause legitimate logins to fail.
+- **File-based storage.** User records are stored as plain JSON files with no locking, indexing, or access control beyond the filesystem.
+- **Single-threaded server per connection.** Each client connection spawns a dedicated OS thread; this does not scale to large numbers of concurrent clients.
+- **No account enumeration protection.** The server returns distinct error messages for "user does not exist" vs. authentication failure.
+
+---
+
+## Comparison to Traditional Authentication
+
+| Aspect | Traditional | This system |
+|--------|-------------|-------------|
+| What is sent to server | Password or password-derived hash | Nothing secret — only a ZK proof |
+| What server stores | Password hash (e.g. bcrypt, Argon2) | Public key `Y = g^x` only |
+| Authentication mechanism | Verify a secret | Verify a zero-knowledge proof of knowledge of `x` |
+| Session binding | Tokens or TLS | Cryptographically enforced via DH shared key and TOTP |
+
+---
+
+## Dependencies
+
+| Crate | Version | Usage |
+|-------|---------|-------|
+| `curve25519-dalek` | 4 | Ristretto255 group operations |
+| `aes-gcm` | 0.10 | AES-256-GCM encryption |
+| `argon2` | 0.5 | Argon2id key derivation |
+| `hmac` | 0.12 | HMAC-SHA256 for TOTP |
+| `sha2` | 0.10 | SHA-512 for Fiat-Shamir hash |
+| `rand_core` | 0.6 | Cryptographic random number generation |
+| `serde` / `serde_json` | 1 | Message serialization |
+| `rpassword` | 7 | Terminal password input without echo |

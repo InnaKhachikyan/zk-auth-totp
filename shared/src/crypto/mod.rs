@@ -1,3 +1,5 @@
 pub mod schnorr;
 pub mod kdf;
 pub mod aes;
+pub mod dh;
+pub mod totp;
