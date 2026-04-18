@@ -67,12 +67,14 @@ pub fn register() {
     let response = read_register_response(&mut client_connection);
 
     match response {
-        RegisterResponse::Success => { 
-            store_local_user(&record);
-            println!("User '{}' successfully reigstered", username);
+        RegisterResponse::Success => {
+            match store_local_user(&record) {
+                Ok(()) => println!("User '{}' successfully registered", username),
+                Err(e) => eprintln!("Registration error: {}", e),
+            }
         }
-        RegisterResponse::Failure {message: _ } => {
-            println!("Registration failed");
+        RegisterResponse::Failure { message } => {
+            eprintln!("Registration failed: {}", message);
         }
     }
 }
@@ -89,7 +91,13 @@ pub fn login() {
     };
 
     let key = derive_key_from_password(&password, &user.salt).expect("Failed to derive the key");
-    let secret_x = decrypt_secret_x(&key, &user.nonce, user.enc_x);
+    let secret_x = match decrypt_secret_x(&key, &user.nonce, user.enc_x) {
+        Ok(x) => x,
+        Err(_) => {
+            eprintln!("Authentication failed");
+            return;
+        }
+    };
     let x = Scalar::from_bytes_mod_order(secret_x);
 
     let (secret_local, pub_local) = dh_gen();
@@ -100,9 +108,19 @@ pub fn login() {
     let server_response = read_login_start_response(&mut client_connection);
     let (server_nonce, server_dh_compressed) = match server_response {
         LoginStartResponse::Success {nonce, pub_dh} => (nonce, pub_dh),
-        LoginStartResponse::Failure { message } => panic!("Login failed: {}", message),
+        LoginStartResponse::Failure { message } => {
+            eprintln!("Login failed: {}", message);
+            return;
+        }
     };
     let compressed = CompressedRistretto(server_dh_compressed);
+    let server_dh: RistrettoPoint = match compressed.decompress() {
+        Some(point) => point,
+        None => {
+            eprintln!("Authentication failed");
+            return;
+        }
+    };
     let server_dh: RistrettoPoint = compressed.decompress().expect("Invalid Ristretto point");
     let dh_key: RistrettoPoint = derive_dh_key(secret_local, server_dh);
 

@@ -12,15 +12,16 @@ pub fn user_exists(path: &str) -> bool {
     Path::new(&path).exists()
 }
 
-pub fn store_user_record(record: &UserRecord) {
+pub fn store_user_record(record: &UserRecord) -> Result<(), String> {
     let dir = "server/data";
     let path = format!("{}/{}.json", dir, record.username);
-    fs::create_dir_all(dir).expect("failed to create the data directory");
+    fs::create_dir_all(dir).map_err(|e| format!("Failed to create data directory: {}", e))?;
     if user_exists(&path) {
-        panic!("Username already exists");
+        return Err("Username already exists".to_string());
     }
-    let json = serde_json::to_string_pretty(record).expect("Failed to serialize the record");
-    fs::write(path, json).expect("Failed to write the user record");
+    let json = serde_json::to_string_pretty(record).map_err(|e| format!("Failed to serialize record: {}", e))?;
+    fs::write(path, json).map_err(|e| format!("Failed to write user record: {}", e))?;
+    Ok(())
 }
 
 pub fn load_user(username: &str) -> Result<UserRecord, Box<dyn std::error::Error>> {

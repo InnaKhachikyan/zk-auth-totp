@@ -25,9 +25,10 @@ fn generate_nonce() -> [u8;16] {
 pub fn handle_register(request: RegisterRequest) -> ServerMessage {
     println!("Received register request");
     let record = UserRecord {username: request.username, pub_key: request.y};
-    store_user_record(&record);
-
-    ServerMessage::Register(RegisterResponse::Success)
+    match store_user_record(&record) {
+        Ok(()) => ServerMessage::Register(RegisterResponse::Success),
+        Err(e) => ServerMessage::Register(RegisterResponse::Failure { message: e }),
+    }
 }
 
 pub fn handle_login_start(request: LoginStartRequest) -> (ServerMessage, Option<LoginSession>) {
@@ -42,11 +43,17 @@ pub fn handle_login_start(request: LoginStartRequest) -> (ServerMessage, Option<
             None,
         );
     }
-    let user = load_user(username).expect("Faied to load user");
+    let user = match load_user(username) {
+        Ok(u) => u,
+        Err(_) => return (ServerMessage::LoginStart(LoginStartResponse::Failure { message: "User does not exist".to_string() }), None),
+    };
     let (secret_local, pub_local) = dh_gen();
     let nonce = generate_nonce();
     let pub_local_bytes = pub_local.compress().to_bytes();
-    let compressed_pub_key = CompressedRistretto(user.pub_key).decompress().expect("Invalid Ristretto Point");
+    let compressed_pub_key = match CompressedRistretto(user.pub_key).decompress() {
+        Some(p) => p,
+        None => return (ServerMessage::LoginStart(LoginStartResponse::Failure { message: "Login failed".to_string() }), None),
+    };
     let session = LoginSession {
         y: compressed_pub_key,
         a_bytes: request.client_pub_dh,
@@ -64,7 +71,10 @@ pub fn handle_login_start(request: LoginStartRequest) -> (ServerMessage, Option<
 }
 
 pub fn handle_login_proof(request: LoginProofRequest, y: &RistrettoPoint, a_bytes: &[u8;32], b_secret: &Scalar, b_bytes: &[u8;32], nonce: &[u8;16]) -> ServerMessage {
-    let client_dh = CompressedRistretto(*a_bytes).decompress();
+    let client_dh = match CompressedRistretto(*a_bytes).decompress() {
+        Some(p) => p,
+        None => return ServerMessage::LoginResult(LoginResult::Failure { message: "Invalid client DH key".to_string() }),
+    };
     let dh_key: RistrettoPoint = derive_dh_key(*b_secret, client_dh);
     let key_bytes: [u8;32] = dh_key.compress().to_bytes();
     let current_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time extraction failed").as_secs();
