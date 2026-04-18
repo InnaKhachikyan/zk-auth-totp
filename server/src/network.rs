@@ -1,8 +1,8 @@
 use std::io::{BufRead, BufReader, Write};
 use std::thread;
 use std::net::{TcpListener, TcpStream};
-use shared::messages::{ClientMessage, ServerMessage};
-use crate::auth::{handle_register, handle_login_start, handle_login_proof};
+use shared::messages::{ClientMessage, ServerMessage, LoginResult};
+use crate::auth::{handle_register, handle_login_start, handle_login_proof, LoginSession};
 
 pub fn run_server() {
     let listener = TcpListener::bind("127.0.0.1:7878").expect("Failed to bind server");
@@ -31,6 +31,8 @@ fn handle_client(mut stream: TcpStream) {
     };
 
     let mut reader = BufReader::new(reader_stream);
+
+    let mut login_session: Option<LoginSession> = None;
     loop {
         let mut message = String::new();
 
@@ -54,8 +56,19 @@ fn handle_client(mut stream: TcpStream) {
         };
         let response = match request {
             ClientMessage::Register(request) => handle_register(request),
-            ClientMessage::LoginStart(request) => handle_login_start(request),
-            ClientMessage::LoginProof(request) => handle_login_proof(request),
+            ClientMessage::LoginStart(request) => {
+                let (response, session) = handle_login_start(request);
+                login_session = session;
+                response
+            }
+            ClientMessage::LoginProof(request) => {
+                match &login_session {
+                    Some(session) => handle_login_proof(request, &session.y, &session.a_bytes, &session.b_secret, &session.b_bytes, &session.nonce),
+                    None => {
+                        ServerMessage::LoginResult(LoginResult::Failure { message: "No active session".to_string(),})
+                    }
+                }
+            }
         };
         if let Err(e) = send_response(&mut stream, &response) {
             eprintln!("Failed to send response {}", e);

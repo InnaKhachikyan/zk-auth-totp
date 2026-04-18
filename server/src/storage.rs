@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct UserRecord {
     pub username: String,
     pub pub_key: [u8; 32],
@@ -21,4 +21,11 @@ pub fn store_user_record(record: &UserRecord) {
     }
     let json = serde_json::to_string_pretty(record).expect("Failed to serialize the record");
     fs::write(path, json).expect("Failed to write the user record");
+}
+
+pub fn load_user(username: &str) -> Result<UserRecord, Box<dyn std::error::Error>> {
+    let path = format!("server/data/{}.json", username);
+    let data = std::fs::read_to_string(&path)?;
+    let user = serde_json::from_str(&data)?;
+    Ok(user)
 }
